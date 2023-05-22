@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tauri App</title>
+  <script type="module" src="/main.js" defer></script>
+  <style>
+    .logo.vanilla:hover {
+      filter: drop-shadow(0 0 2em #ffe21c);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Ledger with Tauri!</h1>
+
+    <h2>Get Account</h2>
+    <div class="row">
+      <div>
+        <input id="pk-input" placeholder="Enter account number(0,1,..,)" />
+        <button id="pk-button" type="button">Get Address</button>
+      </div>
+    </div>
+    <p id="pk-msg"></p>
+
+    <h2>Sign Data</h2>
+    <div class="row">
+      <div>
+        <input id="sign-data-pk-input" placeholder="Enter account number(0,1,..,)" />
+        <input id="sign-data-chain-input" placeholder="Enter chain ID.." />
+        <input id="data" placeholder="Enter text to sign.." />
+        <button id="sign-data-button" type="button">Sign data</button>
+      </div>
+    </div>
+    <p id="sig-data-msg"></p>
+
+    <h2>Sign Tx</h2>
+    <div class="row">
+      <div>
+        <input id="tx-pk-input" placeholder="Enter account number(0,1,...)" />
+        <input id="tx-chain-input" placeholder="Enter chain ID.." />
+        <input id="tx-to-input" placeholder="Enter Recipient Address" />
+        <input id="tx-value-input" placeholder="Enter eth value" />
+        <input id="tx-nonce-input" placeholder="Enter nonce value" />
+        <input id="tx-priority-fee-input" placeholder="Enter priority-fee value in wei" />
+        <input id="tx-max-fee-input" placeholder="Enter max-fee value in wei" />
+        <button id="sign-tx-button" type="button">Sign Tx</button>
+      </div>
+    </div>
+    <p id="sig-tx-msg"></p>
+
+
+  </div>
+</body>
+
+</html>
