@@ -2,15 +2,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod ledger_util;
 use ethers_core::types::{Address, U256};
-use ledger_util::Error;
+use ledger_transport_hid::LedgerHIDError;
+use ledger_util::{new_ledger, Error};
 #[tauri::command]
 fn get_pk(num: &str) -> Result<String, String> {
+    let ledger = match new_ledger() {
+        Ok(l) => l,
+        Err(e) => return Err(e.to_string()),
+    };
+
     let path = format!("44'/60'/{}'/0/0", num);
-    let (pk, address) = match ledger_util::get_pk(&path) {
+    let (pk, address) = match ledger_util::get_pk(&path, &ledger) {
         Ok(r) => r,
         Err(e) => match e {
             Error::ParsePathError => return Err("Invalid Path".into()),
-            Error::LedgerError(e) => return Err(parse_ledger_error(e)),
+            Error::LedgerError(e) => {
+                return Err(parse_ledger_error(e));
+            }
         },
     };
     let result = format! {"PK:{}\nAddr:{}",pk,address};
@@ -19,12 +27,16 @@ fn get_pk(num: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn sign_data(num: &str, msg: &str, chain_id: &str) -> Result<String, String> {
+    let ledger = match new_ledger() {
+        Ok(l) => l,
+        Err(e) => return Err(e.to_string()),
+    };
     let path = format!("44'/60'/{}'/0/0", num);
     let chain_id: u64 = match chain_id.parse() {
         Ok(n) => n,
         Err(_) => return Err("Invalid chain ID".into()),
     };
-    let (v, r, s) = match ledger_util::sign_message(&path, msg, chain_id) {
+    let (v, r, s) = match ledger_util::sign_message(&path, msg, chain_id, &ledger) {
         Ok(r) => r,
         Err(e) => match e {
             Error::ParsePathError => return Err("Invalid Path".into()),
@@ -42,9 +54,15 @@ fn sign_tx(
     value: &str,
     to: &str,
     nonce: &str,
+    gas: Option<&str>,
     priority_fee: &str,
     max_fee: &str,
+    data: Option<Vec<u8>>,
 ) -> Result<String, String> {
+    let ledger = match new_ledger() {
+        Ok(l) => l,
+        Err(e) => return Err(e.to_string()),
+    };
     let chain_id: u64 = match chain_id.parse() {
         Ok(n) => n,
         Err(_) => return Err("Invalid chain ID".into()),
@@ -57,15 +75,22 @@ fn sign_tx(
         Ok(n) => n,
         Err(_) => return Err("Invalid value".into()),
     };
-    let nonce: U256 = match nonce.parse() {
+    let nonce: U256 = match U256::from_dec_str(nonce) {
         Ok(n) => n,
         Err(_) => return Err("Invalid nonce value".into()),
     };
-    let priority_fee: U256 = match priority_fee.parse() {
+    let gas: Option<U256> = match gas {
+        Some(n) => match U256::from_dec_str(n) {
+            Ok(g) => Some(g),
+            Err(_) => return Err("Invalid gas value".into()),
+        },
+        None => None,
+    };
+    let priority_fee: U256 = match U256::from_dec_str(priority_fee) {
         Ok(n) => n,
         Err(_) => return Err("Invalid priority fee value".into()),
     };
-    let max_fee: U256 = match max_fee.parse() {
+    let max_fee: U256 = match U256::from_dec_str(max_fee) {
         Ok(n) => n,
         Err(_) => return Err("Invalid max_fee value".into()),
     };
@@ -78,9 +103,10 @@ fn sign_tx(
         nonce,
         priority_fee,
         max_fee,
-        None,
+        gas,
         chain_id,
-        None,
+        data,
+        &ledger,
     ) {
         Ok(r) => r,
         Err(e) => match e {
@@ -91,17 +117,11 @@ fn sign_tx(
     Ok(format!("Signed tx: {}", hex_signed_tx))
 }
 
-fn parse_ledger_error(e: ledger::Error) -> String {
+fn parse_ledger_error(e: LedgerHIDError) -> String {
     match e {
-        ledger::Error::Apdu(s) => {
-            if s == "[APDU_CODE_CONDITIONS_NOT_SATISFIED] Conditions of use not satisfied" {
-                return "Cancelled".into();
-            } else {
-                return "Please open Eth app on Ledger".into();
-            }
-        }
-        ledger::Error::DeviceNotFound => return "Ledger not found".into(),
-        _ => return "Error".into(),
+        LedgerHIDError::DeviceNotFound => return "Ledger not found".into(),
+        LedgerHIDError::Comm(r) => return r.into(),
+        _ => return e.to_string(),
     }
 }
 
