@@ -91,6 +91,7 @@ pub fn get_pk(path: &str, ledger: &TransportNativeHID) -> Result<(String, String
     Ok((pk, address))
 }
 
+// sign msg without eip-191 prefix
 pub fn sign_message(
     path: &str,
     msg: &str,
@@ -99,23 +100,44 @@ pub fn sign_message(
 ) -> Result<(String, String, String), Error> {
     //let sign_message = &b"\x19Ethereum Signed Message:\n"[..];
     let msg = msg.as_bytes();
+    let msg_len = msg.len();
     let b_path = match parse_bip32_path(path) {
         Ok(r) => r,
         Err(_) => return Err(Error::ParsePathError),
     };
     let bip32_num: u8 = (b_path.len() / 4).try_into().unwrap();
-    let encoded_tx = [&u32::try_from(msg.len()).unwrap().to_be_bytes()[..], msg].concat();
-    let data = [&[bip32_num][..], &b_path, &encoded_tx].concat();
 
-    let command = APDUCommand {
-        cla: 0xe0,
-        ins: 0x08,
-        p1: 0x00,
-        p2: 0x00,
-        data,
-    };
-    let r = ledger.exchange(&command)?;
-    let result = r.apdu_data();
+    // divide msg if too long
+    let mut result = Vec::new();
+    let mut first_chunk = true;
+    let data_chunk_iter = msg.chunks(230);
+    for chunk in data_chunk_iter {
+        if first_chunk {
+            let d = [&u32::try_from(msg_len).unwrap().to_be_bytes()[..], chunk].concat();
+            let data = [&[bip32_num][..], &b_path, &d].concat();
+            let command = APDUCommand {
+                cla: 0xe0,
+                ins: 0x08,
+                p1: 0x00,
+                p2: 0x00,
+                data,
+            };
+            let ledger_return = ledger.exchange(&command)?;
+            result = ledger_return.apdu_data().to_vec();
+            first_chunk = false;
+        } else {
+            let command = APDUCommand {
+                cla: 0xe0,
+                ins: 0x08,
+                p1: 0x80,
+                p2: 0x00,
+                data: chunk,
+            };
+            let ledger_return = ledger.exchange(&command)?;
+            result = ledger_return.apdu_data().to_vec();
+        }
+    }
+
     if result.len() == 0 {
         if get_opened_app(&ledger)? == "Ethereum" {
             return Err(LedgerHIDError::Comm("Canceled").into());
@@ -159,6 +181,7 @@ pub fn sign_tx(
         Some(d) => d,
         None => Vec::<u8>::default(),
     };
+
     tx = tx
         .to(to)
         .value(amount)
@@ -178,15 +201,35 @@ pub fn sign_tx(
     let bip32_num: u8 = (b_path.len() / 4).try_into().unwrap();
     let data = [&[bip32_num][..], &b_path, &encoded_tx].concat();
 
-    let command = APDUCommand {
-        cla: 0xe0,
-        ins: 0x04,
-        p1: 0x00,
-        p2: 0x00,
-        data,
-    };
-    let r = ledger.exchange(&command)?;
-    let result = r.apdu_data();
+    // divide data if too long
+    let mut result = Vec::new();
+    let mut first_chunk = true;
+    let data_chunk_iter = data.chunks(255);
+    for chunk in data_chunk_iter {
+        if first_chunk {
+            let command = APDUCommand {
+                cla: 0xe0,
+                ins: 0x04,
+                p1: 0x00,
+                p2: 0x00,
+                data: chunk,
+            };
+            let r = ledger.exchange(&command)?;
+            result = r.apdu_data().to_vec();
+            first_chunk = false;
+        } else {
+            let command = APDUCommand {
+                cla: 0xe0,
+                ins: 0x04,
+                p1: 0x80,
+                p2: 0x00,
+                data: chunk,
+            };
+            let r = ledger.exchange(&command)?;
+            result = r.apdu_data().to_vec();
+        }
+    }
+
     if result.len() == 0 {
         if get_opened_app(&ledger)? == "Ethereum" {
             return Err(LedgerHIDError::Comm("Canceled").into());
@@ -218,6 +261,9 @@ fn get_opened_app(ledger: &TransportNativeHID) -> Result<String, Error> {
     };
     let r = ledger.exchange(&command)?;
     let result = r.apdu_data();
+    if result.len() == 0 {
+        return Err(LedgerHIDError::Comm("Device Locked").into());
+    }
     let len: usize = result[1].into();
     Ok(String::from_utf8(result[2..2 + len].to_vec()).unwrap())
 }
